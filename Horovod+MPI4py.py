@@ -129,7 +129,7 @@ params.INITIAL_LEARNING_NB_EPOCH = 1000
 params.LEARNINGBASE_ORIGIN = "New_Test"
 params.LEARNINGBASE_BUT = "New_Simu_Test"
 params.GENETIC_LEARNING_NB_EPOCH = 10
-params.BATCH_SIZE_PRINCIPAL = 65536#8192#32768#16384#
+params.BATCH_SIZE_PRINCIPAL = 32768#16384#32768#65536#131072#65536#8192#32768#16384#
 params.OPTIMIZER = 'adamax'##############################
 params.OPTIMIZER_GENETIC = 'SGD'###########################
 params.NBLAYERS = 11
@@ -733,7 +733,7 @@ def ReinforceOptimalityWithGenetic(list_optimizers, pkgNameOriginal, pkgNameBut,
         LIST_OF_TASKS = [LIST_OF_TASKS[i] for i in range(len(LIST_OF_TASKS)) if i % params.size == params.rank]
         
         NOTES_INDIVIDUS = metamodels_create_and_train(LIST_OF_TASKS, list_optimizers,\
-                                limit_tasks_by_model = 4)
+                                limit_tasks_by_model = 32)
         
         params.comm.Barrier()
         K.clear_session()
@@ -793,7 +793,7 @@ try:
     # params.test_files = [params.list_gen[4]]
 
     params.calib_files = [params.list_gen[0]]
-    params.train_files = params.list_gen[1:3]
+    params.train_files = params.list_gen[1:31]
     params.val_files = params.list_gen[31:33]
     params.test_files = [params.list_gen[33]]
 
@@ -828,7 +828,7 @@ try:
     config.gpu_options.visible_device_list = str(hvd.local_rank())
     K.set_session(tf.compat.v1.Session(config = config))
 
-    nbloop = 5
+    nbloop = 100
 
     nbChildAllowed = 4
     pkgNameOriginal = params.LEARNINGBASE_ORIGIN
