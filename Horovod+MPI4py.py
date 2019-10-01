@@ -11,6 +11,9 @@ Created on Fri Sep 27 15:31:17 2019
 from __future__ import print_function
 import sys, os
 
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 from sys import platform
 from decimal import *
 from sklearn.model_selection import train_test_split
@@ -126,7 +129,7 @@ params.INITIAL_LEARNING_NB_EPOCH = 1000
 params.LEARNINGBASE_ORIGIN = "New_Test"
 params.LEARNINGBASE_BUT = "New_Simu_Test"
 params.GENETIC_LEARNING_NB_EPOCH = 10
-params.BATCH_SIZE_PRINCIPAL = 8192#65536#32768#16384#
+params.BATCH_SIZE_PRINCIPAL = 65536#8192#32768#16384#
 params.OPTIMIZER = 'adamax'##############################
 params.OPTIMIZER_GENETIC = 'SGD'###########################
 params.NBLAYERS = 11
@@ -193,50 +196,6 @@ def read_all_files_scale_and_split(calib_files, train_files, val_files, test_fil
             (X_train_scaled, Y_train_scaled), (X_val_scaled, Y_val_scaled),\
              (X_test_scaled, Y_test_scaled), Y_test_orig
 ####################################################################################
-
-path_to = '/mnt/natixis_1/1/'#'/workspace/FirstAttempt/Data/Sergey/'#
-params.list_gen = [path_to + x for x in os.listdir(path_to)]
-
-# params.calib_files = [params.list_gen[0]]
-# params.train_files = params.list_gen[1:3]
-# params.val_files = params.list_gen[3:4]
-# params.test_files = [params.list_gen[4]]
-
-params.calib_files = [params.list_gen[0]]
-params.train_files = params.list_gen[1:31]
-params.val_files = params.list_gen[31:33]
-params.test_files = [params.list_gen[33]]
-
-####################################################################################
-print('READING DATA...')
-
-(params.X_scaler, params.Y_scaler), (params.X_calib_scaled, params.Y_calib_scaled\
-),(params.X_train_scaled, params.Y_train_scaled), (params.X_val_scaled, params.Y_val_scaled\
-), (params.X_test_scaled, params.Y_test_scaled), params.Y_test_orig = read_all_files_scale_and_split(\
-            params.calib_files, params.train_files, params.val_files, params.test_files)
-
-print(params.X_train_scaled.shape, params.X_calib_scaled.shape, params.X_val_scaled.shape, params.X_test_scaled.shape)
-print('READ DATA')
-####################################################################################
-####################################################################################
-print('INIT HOROVOD')
-hvd.init()
-
-params.comm = MPI.COMM_WORLD
-
-params.size = params.comm.Get_size()
-params.rank = params.comm.Get_rank()
-
-assert(params.size == hvd.size())
-assert(params.rank == hvd.rank())
-
-
-# Horovod: pin GPU to be used to process local rank (one GPU per process)
-config = tf.ConfigProto()
-config.gpu_options.allow_growth = True
-config.gpu_options.visible_device_list = str(hvd.local_rank())
-K.set_session(tf.Session(config = config))
-
 
 
 #################################################################################
@@ -323,13 +282,13 @@ def pathCreatechild(TimePath, individualpath, child):
         if not(os.path.isdir(pathCreated)):
             os.makedirs(pathCreated, 0o777)
     
-    print('pathCreatechild=', pathCreated)
+    #print('pathCreatechild=', pathCreated)
     
     return pathCreated
 
 def killIndividual(individualPath):
     
-    print("killing :", individualPath)
+    #print("killing :", individualPath)
     shutil.rmtree(individualPath)
     
 def saveIndividualModel(model, specList, path, cnfigName):
@@ -344,7 +303,7 @@ def saveIndividualModel(model, specList, path, cnfigName):
     filename = path + '/' + cnfigName + 'current_structure.str'
     _= joblib.dump(specList, filename, compress = 9)
     
-    print('saveIndividualModel model2 at :', path)
+    #print('saveIndividualModel model2 at :', path)
 
     
 def loadInvidualModel(IndividuPath, cnfigName):
@@ -359,14 +318,14 @@ def loadInvidualModel(IndividuPath, cnfigName):
     filename2 = IndividuPath + '/' + cnfigName  + 'current_structure.str'
     specList = joblib.load(filename2)
     
-    print('loadInvidualModel :IndividuPath=', IndividuPath)
+    #print('loadInvidualModel :IndividuPath=', IndividuPath)
     
     return loaded_model, specList
 
 def mutateIndividualModel(model, speclist):
     
     model1 = injectionModel(model, speclist, deltaspecList, params) 
-    print('mutateIndividualModel :')
+    #print('mutateIndividualModel :')
     
     return model1, speclist
 
@@ -417,9 +376,9 @@ def mutateIndividualModel(model, specList, params):
     NbLayers = len(specList)
     deltaNbNeuronList = BulleListPar(0, NbLayers)
     
-    print('mutateIndividualModel : adding neurons', deltaNbNeuronList)
-    print('specList=', specList)
-    print('deltaNbNeuronList=', deltaNbNeuronList)
+    #print('mutateIndividualModel : adding neurons', deltaNbNeuronList)
+    #print('specList=', specList)
+    #print('deltaNbNeuronList=', deltaNbNeuronList)
     
     model2 = injectionModel(model, specList, deltaNbNeuronList, params) 
     specList2 = [[specList[i][0], specList[i][1] + deltaNbNeuronList[i]] for i in range(NbLayers)]
@@ -548,7 +507,7 @@ class CheckScoreSubmodels(tf.keras.callbacks.Callback):
         
         
         scores = self.e_model.evaluate_generator(self.test_generator)
-        print('EVALUATING SUBMODELS...', scores)
+        #print('EVALUATING SUBMODELS...', scores)
         
         assert(len(scores[1:]) == len(self.best_weights))
         assert(np.allclose(scores[0], np.sum(scores[1:]), atol = 0.01))
@@ -568,7 +527,7 @@ class CheckScoreSubmodels(tf.keras.callbacks.Callback):
     
 def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 16):
     
-    print('N_TASKS: ', len(tasks))
+    #print('N_TASKS: ', len(tasks))
     batch_tasks = [tasks[i * limit_tasks_by_model : (i + 1) * limit_tasks_by_model]\
                    for i in range(len(tasks) // limit_tasks_by_model + 1)]
     
@@ -594,14 +553,14 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
             train_generator = DataGenerator_N(n_dims = len(list_models), mode = 'train')
             val_generator = DataGenerator_N(n_dims = len(list_models), mode = 'val')
             
-            fit_params_gen = {'verbose':1, 'epochs':1, 'shuffle':False, 'use_multiprocessing':True, 'workers':16}
+            fit_params_gen = {'verbose':0, 'epochs':1, 'shuffle':False, 'use_multiprocessing':True, 'workers':16}
             
             #fit_params = {'verbose':1, 'epochs':1, 'shuffle': True}
             
             #nbatches_train, mod = divmod(len(params.X_train_scaled), params.BATCH_SIZE_PRINCIPAL)
             #nbatches_valid, mod = divmod(len(params.X_val_scaled), params.BATCH_SIZE_PRINCIPAL)
             
-            print('####################### FITTING METAMODEL FOR %s#############################'%opt.type)
+            #print('####################### FITTING METAMODEL FOR %s#############################'%opt.type)
             history = metamodel.fit_generator(generator = train_generator, \
                                               validation_data = val_generator, \
                                        callbacks = cbs, **fit_params_gen)
@@ -610,7 +569,7 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
             #history = metamodel.fit(params.X_train_scaled, params.Y_train_scaled,\
             #                        validation_data = (params.X_val_scaled, params.Y_val_scaled),\
             #                           callbacks = callbacks, **fit_params)
-            print(metamodel.summary())
+            #print(metamodel.summary())
             for bm in best_models:
                 bm.model.set_weights(bm.init_weights)
         
@@ -654,7 +613,7 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
 
 def create_metamodel(list_models, optimizer):
     
-    print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!', list_models)
+    #print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!', list_models)
     inp = Input(shape = (192,))
     
     outs_list = [model(inp) for model in list_models]
@@ -672,12 +631,12 @@ def create_metamodel(list_models, optimizer):
     evaluate_model = Model(inputs = inp, outputs = outs_list)
     
     namespace = evaluate_model.output_names
-    print(evaluate_model.output_names)
+    #print(evaluate_model.output_names)
     
     #G = 8
     #metaModel = keras.utils.multi_gpu_model(metaModel, gpus = G)
     metaModel.compile(loss = 'mse', optimizer = optimizer)
-    print(metaModel.summary())
+    #print(metaModel.summary())
     evaluate_model.compile(loss = {namespace[i] : 'mse' for i in range(len(list_models))}, optimizer = optimizer)
     
     return metaModel, evaluate_model
@@ -712,14 +671,14 @@ def ReinforceOptimalityWithGenetic(list_optimizers, pkgNameOriginal, pkgNameBut,
     params.comm.Barrier()
     
     for iTimeStep in range(nbloop):
-        start = timeit.timeit()
-
+        start = time.time()
+        #print(iTimeStep, 'Tiiiiiiimeeeeee')
         TimePath = SimuPath + "/" + "time" + str(iTimeStep) 
         
         if params.rank == 0:
             if not(os.path.isdir(TimePath)):
                     os.makedirs(TimePath, 0o777)
-                    print("created : ",TimePath)
+                    #print("created : ",TimePath)
 
         LIST_OF_TASKS = []        
         
@@ -733,7 +692,7 @@ def ReinforceOptimalityWithGenetic(list_optimizers, pkgNameOriginal, pkgNameBut,
                 if params.rank == 0:
                     if not(os.path.isdir(IndividuPath)):
                         os.makedirs(IndividuPath, 0o777)
-                        print("created : ",IndividuPath)
+                        #print("created : ",IndividuPath)
                 
                 
                 params.comm.Barrier()
@@ -779,10 +738,10 @@ def ReinforceOptimalityWithGenetic(list_optimizers, pkgNameOriginal, pkgNameBut,
         params.comm.Barrier()
         K.clear_session()
         
-        config = tf.ConfigProto()
+        config = tf.compat.v1.ConfigProto()
         config.gpu_options.allow_growth = True
         config.gpu_options.visible_device_list = str(hvd.local_rank())
-        K.set_session(tf.Session(config = config))
+        K.set_session(tf.compat.v1.Session(config = config))
         params.comm.Barrier()
         
         if params.rank == 0:
@@ -805,9 +764,9 @@ def ReinforceOptimalityWithGenetic(list_optimizers, pkgNameOriginal, pkgNameBut,
             bestNoteIndividus = SORTED_INDIVIDUS[:N_survive]
             worstNoteIndividus = SORTED_INDIVIDUS[N_survive:]
 
-            print('ListOnote=', SORTED_INDIVIDUS)
-            print('bestNoteIndexlist=', bestNoteIndividus)
-            print('worstNoteIndexlist=', worstNoteIndividus)
+            #print('ListOnote=', SORTED_INDIVIDUS)
+            #print('bestNoteIndexlist=', bestNoteIndividus)
+            #print('worstNoteIndexlist=', worstNoteIndividus)
 
             for individu in worstNoteIndividus : 
                 killIndividual(individu)
@@ -817,23 +776,73 @@ def ReinforceOptimalityWithGenetic(list_optimizers, pkgNameOriginal, pkgNameBut,
         
         precedingIndividualPathList = params.comm.bcast(precedingIndividualPathList, root = 0)
 
-        end = timeit.timeit()
+        end = time.time()
         print("___________________Step %d lasted %f"%(iTimeStep, end - start))
 ###############################################################################
 ###############################################################################
 
-nbloop = 5
 
-nbChildAllowed = 4
-pkgNameOriginal = params.LEARNINGBASE_ORIGIN
-pkgNameBut = params.LEARNINGBASE_BUT
-InitialNbIndividual = 32
+try:
+    
+    path_to = '/mnt/natixis_1/1/'#'/workspace/FirstAttempt/Data/Sergey/'#
+    params.list_gen = [path_to + x for x in os.listdir(path_to)]
 
-print('INIT_OPTIMIZERS...')
-list_opt = [('Adam', {'lr':0.0001}), ('SGD', {'lr':0.0001})]
-list_optimizers = [Optimizer(lopt[0], lopt[1]) for lopt in list_opt]
+    # params.calib_files = [params.list_gen[0]]
+    # params.train_files = params.list_gen[1:3]
+    # params.val_files = params.list_gen[3:4]
+    # params.test_files = [params.list_gen[4]]
+
+    params.calib_files = [params.list_gen[0]]
+    params.train_files = params.list_gen[1:3]
+    params.val_files = params.list_gen[31:33]
+    params.test_files = [params.list_gen[33]]
+
+    ####################################################################################
+    print('READING DATA...')
+
+    (params.X_scaler, params.Y_scaler), (params.X_calib_scaled, params.Y_calib_scaled\
+    ),(params.X_train_scaled, params.Y_train_scaled), (params.X_val_scaled, params.Y_val_scaled\
+    ), (params.X_test_scaled, params.Y_test_scaled), params.Y_test_orig = read_all_files_scale_and_split(\
+                params.calib_files, params.train_files, params.val_files, params.test_files)
+
+    print(params.X_train_scaled.shape, params.X_calib_scaled.shape, params.X_val_scaled.shape, params.X_test_scaled.shape)
+    print('READ DATA')
+    ####################################################################################
+    ####################################################################################
+    print('INIT HOROVOD')
+    
+    hvd.init()
+
+    params.comm = MPI.COMM_WORLD
+
+    params.size = params.comm.Get_size()
+    params.rank = params.comm.Get_rank()
+
+    assert(params.size == hvd.size())
+    assert(params.rank == hvd.rank())
 
 
+    # Horovod: pin GPU to be used to process local rank (one GPU per process)
+    config = tf.compat.v1.ConfigProto()
+    config.gpu_options.allow_growth = True
+    config.gpu_options.visible_device_list = str(hvd.local_rank())
+    K.set_session(tf.compat.v1.Session(config = config))
 
-a = ReinforceOptimalityWithGenetic(list_optimizers, pkgNameOriginal, pkgNameBut,\
-                    InitialNbIndividual, Idealpopulation, nbChildAllowed, nbloop, "Vol", params)   
+    nbloop = 5
+
+    nbChildAllowed = 4
+    pkgNameOriginal = params.LEARNINGBASE_ORIGIN
+    pkgNameBut = params.LEARNINGBASE_BUT
+    InitialNbIndividual = 32
+
+    print('INIT_OPTIMIZERS...')
+    list_opt = [('Adam', {'lr':1e-7}), ('SGD', {'lr':1e-7})]
+    list_optimizers = [Optimizer(lopt[0], lopt[1]) for lopt in list_opt]
+
+    a = ReinforceOptimalityWithGenetic(list_optimizers, pkgNameOriginal, pkgNameBut,\
+                        InitialNbIndividual, Idealpopulation, nbChildAllowed, nbloop, "Vol", params)   
+    
+except KeyboardInterrupt:
+    print('Keeeeyboaaaaard')
+    del params
+    os._exit()
