@@ -849,7 +849,7 @@ try:
     a = ReinforceOptimalityWithGenetic(list_optimizers, pkgNameOriginal, pkgNameBut,\
                         InitialNbIndividual, Idealpopulation, nbChildAllowed, nbloop, "Vol", params)   
     
-except KeyboardInterrupt:
-    print('Keeeeyboaaaaard')
+except Exception as e:
+    print(e)
     del params
     os._exit()
