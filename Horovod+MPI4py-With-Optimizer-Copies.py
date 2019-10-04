@@ -869,6 +869,9 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
     for batch_task in batch_tasks:
         if len(batch_task) == 0:
             break
+            
+        print('Loading data from parents and creating individuals....') 
+        
         best_models = [Best_Model(task) for task in batch_task]
         
         for opt in list_optimizers:
@@ -877,8 +880,10 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
             
             list_models = [bm.model for bm in best_models]
             
+            print('Creating metamodel...')
             metamodel, eval_model = create_metamodel(list_models, optimizer)
             
+            print( 'Copying optimizers weights')
             lists_params_optimizers = [bm.optimizer_weights for bm in best_models]
             
             recopy_weights_params(metamodel, lists_params_optimizers)
@@ -891,6 +896,7 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
             
             cbs.append(CheckScoreSubmodels(eval_model, best_models, opt))
             
+            print('Generator creation...')
             train_generator = DataGenerator_N(n_dims = len(list_models), mode = 'train')
             val_generator = DataGenerator_N(n_dims = len(list_models), mode = 'val')
             
@@ -904,7 +910,7 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
             #print('####################### FITTING METAMODEL FOR %s#############################'%opt.type)
             
             
-            
+            print('Fitting metamodel...')
             history = metamodel.fit_generator(generator = train_generator, \
                                               validation_data = val_generator, \
                                        callbacks = cbs, **fit_params_gen)
@@ -917,14 +923,17 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
             for bm in best_models:
                 bm.model.set_weights(bm.init_weights)
         
+        print('Extracting optimizers states...')
         
         lgths_optimizer_pars = [bm.optim_lengths for bm in best_models]
         extracted_optimizers_states = extract_optimizer_state(lgths_optimizer_pars, metamodel)
         
-        for bm in best_models:
+        print('Saving all to the disk...')
+        for idxx, bm in enumerate(best_models):
             
             if not bm.best_optimizer:
-                
+            
+                bm.model.optimizer.set_weights(extracted_optimizers_states[idxx])
                 bm.parent_model.set_weights(bm.parent_weights)
                 
                 with open(bm.task.IndividuPath + '/Report.txt', 'w+') as fp:
@@ -953,6 +962,7 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
                     fp.write(str(bm.best_score))
                     
                 bm.model.set_weights(bm.best_weights)
+                bm.model.optimizer.set_weights(extracted_optimizers_states[idxx])
                 saveIndividualModel(bm.model, bm.speclist, bm.task.IndividuPath, bm.task.cnfigName)
                 
                 TOTAL_BEST[bm.task.IndividuPath] = bm.best_score
@@ -1032,6 +1042,8 @@ def ReinforceOptimalityWithGenetic(list_optimizers, pkgNameOriginal, pkgNameBut,
         
         params.comm.Barrier()
         
+        print('Creating directories and tasks...')
+        
         if (iTimeStep == 0) :
             for individual in range(InitialNbIndividual):
                 IndividuPath = TimePath +  "/individu" + str(individual)
@@ -1106,6 +1118,7 @@ def ReinforceOptimalityWithGenetic(list_optimizers, pkgNameOriginal, pkgNameBut,
         
         if params.rank == 0:
             
+            print('Selecting best individuals...')
             SORTED_INDIVIDUS = sorted(NOTES_INDIVIDUS, key = NOTES_INDIVIDUS.__getitem__)
 
             N_survive = populationctrlFunc(iTimeStep)
