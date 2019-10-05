@@ -352,10 +352,9 @@ def killIndividual(individualPath):
     #print("killing :", individualPath)
     shutil.rmtree(individualPath)
     
-def saveIndividualModel(model, specList, path, cnfigName):
+def saveIndividualModel(model, specList, path, cnfigName, hist):
     
     model.save_weights(path + '/' + cnfigName + '.hdf5')
-    
     
     model_json = model.to_json()
     
@@ -364,13 +363,18 @@ def saveIndividualModel(model, specList, path, cnfigName):
     
     
     filename = path + '/' + cnfigName + 'current_structure.str'
-    _= joblib.dump(specList, filename, compress = 9)
+    joblib.dump(specList, filename, compress = 9)
     
     filename2 = path + '/' + cnfigName  + 'optim_weights.pkl'
-    optim_weights = joblib.dump(model.optimizer.get_weights(), filename2, compress = 9)
+    joblib.dump(model.optimizer.get_weights(), filename2, compress = 9)
     
     filename = path + '/' + cnfigName + '.hdf5'
     model.save_weights(filename)
+    
+    assert type(hist) is list
+    filename2 = path + '/' + cnfigName  + 'history.pkl'
+    joblib.dump(hist, filename2, compress = 9)
+    
     #print('saveIndividualModel model2 at :', path)
 
     
@@ -779,6 +783,8 @@ class Best_Model:
         self.speclist = specList2
         self.init_weights = model2.get_weights()
         
+        self.history = []
+        
         with open(task.ModelPath + '/Best_score.txt', 'r+') as fp:
             parent_score = float(fp.read())
             
@@ -813,15 +819,18 @@ class CheckScoreSubmodels(tf.keras.callbacks.Callback):
         scores = self.e_model.evaluate_generator(self.test_generator)
         #print('EVALUATING SUBMODELS...', scores)
         
-        assert(len(scores[1:]) == len(self.best_weights))
-        assert(np.allclose(scores[0], np.sum(scores[1:]), atol = 0.01))
-        
-        
+        if len(self.best_weights) > 1:
+            assert(len(scores[1:]) == len(self.best_weights))
+            assert(np.allclose(scores[0], np.sum(scores[1:]), atol = 0.01))
+        else:
+            scores = [scores]
+
         lgths_optimizer_pars = [bm.optim_lengths for bm in self.best_weights]
         extracted_optimizers_states = extract_optimizer_state(lgths_optimizer_pars, self.model)
         
         
         for i in range(len(self.best_weights)):
+            self.best_weights[i].history.append(scores[i])
             
             if self.best_weights[i].best_score > scores[i]:
                 
@@ -937,7 +946,7 @@ def extract_optimizer_state(lengths, metamodel):
         
         for i, x in enumerate(split_t(cs, METAPARAMS[1:SECTION_1])):
             models_opt_means.append(x)
-        print(len(models_opt_means))
+        #print(len(models_opt_means))
         for i, x in enumerate(split_t(cs, METAPARAMS[SECTION_1:SECTION_2])):
             models_opt_vars.append(x)
         
@@ -998,9 +1007,9 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
             
             print('Generator creation...')
             train_generator = DataGenerator_N(n_dims = len(list_models), mode = 'train')
-            val_generator = DataGenerator_N(n_dims = len(list_models), mode = 'val')
+            #val_generator = DataGenerator_N(n_dims = len(list_models), mode = 'val')
             
-            fit_params_gen = {'verbose':1, 'epochs':200, 'shuffle':False, 'use_multiprocessing':True, 'workers':16}
+            fit_params_gen = {'verbose':0, 'epochs':100, 'shuffle':False, 'use_multiprocessing':True, 'workers':16}
             
             #fit_params = {'verbose':1, 'epochs':1, 'shuffle': True}
             
@@ -1011,9 +1020,9 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
             
             
             print('Fitting metamodel...')
-            history = metamodel.fit_generator(generator = train_generator, \
-                                              validation_data = val_generator, \
-                                       callbacks = cbs, **fit_params_gen)
+            #validation_data = val_generator, \
+            history = metamodel.fit_generator(generator = train_generator,\
+                                              callbacks = cbs, **fit_params_gen)
             
             #  steps_per_epoch = nbatches_train // hvd.size(), validation_steps = 3 * nbatches_valid // hvd.size(),
             #history = metamodel.fit(params.X_train_scaled, params.Y_train_scaled,\
@@ -1042,7 +1051,7 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
                     fp.write(str(bm.parent_score))
                     
                 bm.parent_model.optimizer.set_weights(bm.parent_opt_weights)    
-                saveIndividualModel(bm.parent_model, bm.parent_speclist, bm.task.IndividuPath, bm.task.cnfigName)
+                saveIndividualModel(bm.parent_model, bm.parent_speclist, bm.task.IndividuPath, bm.task.cnfigName, bm.history)
                 
                 TOTAL_BEST[bm.task.IndividuPath] = bm.best_score
                 
@@ -1070,7 +1079,7 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
                 #print('optimizer ', [[int(y) for y in x.shape ] for x in bm.model.optimizer.get_weights()[1:]])
                 
                 bm.model.optimizer.set_weights(bm.best_opt_weights)
-                saveIndividualModel(bm.model, bm.speclist, bm.task.IndividuPath, bm.task.cnfigName)
+                saveIndividualModel(bm.model, bm.speclist, bm.task.IndividuPath, bm.task.cnfigName, bm.history)
                 
                 TOTAL_BEST[bm.task.IndividuPath] = bm.best_score
         
@@ -1078,14 +1087,16 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
 
 def create_metamodel(list_models, optimizer):
     
+    #print('________', len(list_models))
     #print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!', list_models)
     inp = Input(shape = (192,))
     
     outs_list = [model(inp) for model in list_models]
-    
-    concat = Lambda(lambda l: K.concatenate(l, axis = -1))
-    
-    outs = concat(outs_list)
+    if len(list_models) == 1:
+        outs = outs_list[0]
+    else:
+        concat = Lambda(lambda l: K.concatenate(l, axis = -1))
+        outs = concat(outs_list)
     
     assert(outs.shape[-1] == len(list_models))
     assert(K.ndim(outs) == 2)
@@ -1200,6 +1211,7 @@ def ReinforceOptimalityWithGenetic(list_optimizers, pkgNameOriginal, pkgNameBut,
         
         LIST_OF_TASKS = [LIST_OF_TASKS[i] for i in range(len(LIST_OF_TASKS)) if i % params.size == params.rank]
         
+        print('TASKS BY KERNEL:****____:',  len(LIST_OF_TASKS))
         NOTES_INDIVIDUS = metamodels_create_and_train(LIST_OF_TASKS, list_optimizers,\
                                 limit_tasks_by_model = 16)
         
@@ -1262,9 +1274,9 @@ try:
     # params.test_files = [params.list_gen[4]]
 
     params.calib_files = [params.list_gen[0]]
-    params.train_files = params.list_gen[1:31]
-    params.val_files = params.list_gen[31:33]
-    params.test_files = [params.list_gen[33]]
+    params.train_files = params.list_gen[:29]
+    params.val_files = params.list_gen[29:33]
+    params.test_files = params.list_gen[29:33]
 
     ####################################################################################
     print('READING DATA...')
@@ -1310,7 +1322,7 @@ try:
     nbChildAllowed = 4
     pkgNameOriginal = params.LEARNINGBASE_ORIGIN
     pkgNameBut = params.LEARNINGBASE_BUT
-    InitialNbIndividual = 16
+    InitialNbIndividual = 32
 
     print('INIT_OPTIMIZERS...')
     list_opt = [('Adam', {'lr':1e-5})]#, ('SGD', {'lr':1e-7})
