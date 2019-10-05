@@ -20,7 +20,7 @@ from sklearn.model_selection import train_test_split
 
 path='./'
 if platform == 'win32' :
-    path ='/workspace'
+    path ='/workspace/Stable'
     #path ='C:/Users/Sergey/Desktop/Natixis/Yeti'
 
 
@@ -75,8 +75,8 @@ import numpy as np
 import copy
 from mpi4py import MPI
 # Generate dummy data
-
-
+from keras.optimizers import Adam
+from keras.models import load_model
 
 getcontext().prec = 8
 from util_functions_YetiPhen_VolLoc import *
@@ -117,6 +117,67 @@ dataDirectory = 'Data'
 dataLearningFile = "1dim_VolLoc-Example-new.CSV"
 dataNotationFile = "1dim_VolLoc-Example-new.CSV"
 
+
+
+class Optimizer:
+    
+    def __init__(self, opt_type, params):
+        
+        assert type(params) is dict, "params must be a dict" 
+        assert opt_type in {'SGD', 'Adam'}, "this type of optimizer is not supported" 
+        
+        self.type = opt_type
+        
+        if self.type == 'SGD':
+            for param in params:
+                assert param in {'lr', 'momentum', 'decay', 'nesterov'}, 'Illegal name of parameter'
+        elif self.type == 'Adam':
+            for param in params:
+                assert param in {'lr', 'beta_1', 'beta_2', 'epsilon', 'decay', 'amsgrad'}, 'Illegal name of parameter' 
+        
+        self.params = params
+    
+    @classmethod   
+    def from_file(self, address):
+        
+        load = joblib.load(address)
+        
+        return load
+
+    def create_instance(self):
+        
+        if self.type == 'SGD':
+            return SGD(**self.params)
+        elif self.type == 'Adam':
+            return Adam(**self.params)
+        
+    def save_to_individu(self, address):
+        
+        try:
+            joblib.dump(self, address)
+        except Exception as e:
+            print(e)
+            
+    def introduce_mutation(self):
+        
+        if self.type == 'SGD':
+            pass
+        elif self.type == 'Adam':
+            pass
+        
+        r = np.random.rand()
+        
+        if r < 0.15:
+            self.params['lr'] *= 2.0
+        elif r < 0.55:
+            self.params['lr'] *= 1.0
+        else:
+            self.params['lr'] *= 0.5
+            
+            
+
+
+
 params = metaparameters()
 
 params.INPUT_DIM  = 192
@@ -129,9 +190,9 @@ params.INITIAL_LEARNING_NB_EPOCH = 1000
 params.LEARNINGBASE_ORIGIN = "New_Test"
 params.LEARNINGBASE_BUT = "New_Simu_Test"
 params.GENETIC_LEARNING_NB_EPOCH = 10
-params.BATCH_SIZE_PRINCIPAL = 65536#8192#32768#16384#
-params.OPTIMIZER = 'adamax'##############################
-params.OPTIMIZER_GENETIC = 'SGD'###########################
+params.BATCH_SIZE_PRINCIPAL = 8192#65536#8192#32768#16384#
+#params.OPTIMIZER = 'adamax'##############################
+params.OPTIMIZER_GENETIC = Optimizer('Adam', {'lr':1e-5})###########################
 params.NBLAYERS = 11
 params.NB_LOOPS = 5
 params.PATH = path
@@ -143,6 +204,10 @@ params.NOTATION_FILE = dataDirectory + '/' + dataNotationFile
 params.LISTFIELD1 = ListField1
 params.LISTFIELD2 = ListField2
 
+params.RESNETYPE1_MUTATIONPROBABILITY = 0.1
+params.RESNETYPE2_MUTATIONPROBABILITY = 0.1
+params.HEATFACTOR_MUTATION = 1
+params.MUTATION_RESNETSIZE = 10
 
 
 params.INITIAL_NETWORK_STRUCTURE = [[0,1000], [0,800], [0,400], [0,200],[0,200], [0,100], [0,100], [0,50],[0,25], [0,10]]
@@ -174,11 +239,13 @@ def read_all_files_scale_and_split(calib_files, train_files, val_files, test_fil
     X_val, Y_val = read_and_concat(val_files)
     X_test, Y_test = read_and_concat(test_files)
     
-    Y_scaler = preprocessing.MinMaxScaler(feature_range = (0, 1))
-    Y_scaler.fit(Y_train)
+    X_scaler = joblib.load('x_scaler.pkl')
+    Y_scaler = joblib.load('y_scaler.pkl')
+    #Y_scaler = preprocessing.MinMaxScaler(feature_range = (0, 1))
+    #Y_scaler.fit(Y_train)
     
-    X_scaler = preprocessing.MinMaxScaler(feature_range = (-1, 1))
-    X_scaler.fit(X_train)
+    #X_scaler = preprocessing.MinMaxScaler(feature_range = (-1, 1))
+    #X_scaler.fit(X_train)
     
     X_calib_scaled = X_scaler.transform(X_calib)
     X_train_scaled = X_scaler.transform(X_train)
@@ -288,37 +355,51 @@ def killIndividual(individualPath):
 def saveIndividualModel(model, specList, path, cnfigName):
     
     model.save_weights(path + '/' + cnfigName + '.hdf5')
-
+    
+    
     model_json = model.to_json()
     
     with open(path + '/' + cnfigName +'.json', 'w') as json_file:
         json_file.write(model_json)
-
+    
+    
     filename = path + '/' + cnfigName + 'current_structure.str'
     _= joblib.dump(specList, filename, compress = 9)
     
-    filename2 = path + '/' + cnfigName  + 'optim_weights.str'
+    filename2 = path + '/' + cnfigName  + 'optim_weights.pkl'
     optim_weights = joblib.dump(model.optimizer.get_weights(), filename2, compress = 9)
     
+    filename = path + '/' + cnfigName + '.hdf5'
+    model.save_weights(filename)
     #print('saveIndividualModel model2 at :', path)
 
     
 def loadIndividualModel(IndividuPath, cnfigName):
     
+    
     json_file = open(IndividuPath + "/" + cnfigName  + '.json', 'r')
     file = IndividuPath + '/' + cnfigName  + '.json'
     loaded_model_json = json_file.read()
     json_file.close()  
+    loaded_model = model_from_json(loaded_model_json) 
     
-    loaded_model = model_from_json(loaded_model_json)  
+    #loaded_model = load_model(IndividuPath + "/" + cnfigName  + '.hdf5')
+    loaded_model.compile(loss = 'mse', optimizer = params.OPTIMIZER_GENETIC.create_instance())
+    loaded_model._make_train_function()
+    
+    filename2 = IndividuPath + '/' + cnfigName  + '.hdf5'
+    loaded_model.load_weights(filename2)
+    
     
     filename2 = IndividuPath + '/' + cnfigName  + 'current_structure.str'
     specList = joblib.load(filename2)
     
     #print('loadInvidualModel :IndividuPath=', IndividuPath)
     
-    filename2 = IndividuPath + '/' + cnfigName  + 'optim_weights.str'
+    filename2 = IndividuPath + '/' + cnfigName  + 'optim_weights.pkl'
     optim_weights = joblib.load(filename2)
+    
+    loaded_model.optimizer.set_weights(optim_weights)
     
     return loaded_model, specList, optim_weights 
     
@@ -334,7 +415,7 @@ def copyModelFromInitial(originalModelPath, IndividuPath):
     
 
 def Idealpopulation(nstep):
-    return 16 * 2**nstep
+    return 16 * int(np.floor(1.15**nstep))
 #     if (nstep < 4): 
 #         return 3 * nstep + 2
 #     else:
@@ -387,60 +468,70 @@ def buildModel(specificationList) :
     model2 = Model(inputs = inData, outputs = prixfinal)
     
     return model2
+
+
+def subcopy3(wL1, wL2): 
+
+    #print('wL1 ', [[int(y) for y in x.shape ] for x in wL1])
+    #print('wL2 ', [[int(y) for y in x.shape ] for x in wL2])
     
-  
-
-
-def subcopy3(wL1, wL2, pL): 
-
+    pL = [x.shape for x in wL1]
+    
     w2_vals = K.batch_get_value(wL2)
-    
+    #print("___LGTHS: ", len(wL1), len(wL2), len(pL))
     to_update = []
-    for iparam in range(len(pL)):
     
-        if(len(pl[i]) == 1):
-        
-            w2_val = w2_vals[iparams + 1]
-            w1_val = wL1[iparams + 1]#K.batch_get_value([w1])[0]
+    for iparam in range(1, len(pL)):
+        #print("iparam", iparam)
+        if(len(pL[iparam]) == 1):
             
-            w2_val[0:dims[0]] = w1_val[0:dims[0]]
-            w2_val[dims[0] : w2_val.shape[0]] = 0  
+            w2_val = w2_vals[iparam ]
+            w1_val = wL1[iparam ]#K.batch_get_value([w1])[0]
             
-            to_update.apppend((wL2[iparams + 1], w2_val])   
+            w2_val[0:pL[iparam][0]] = w1_val[0:pL[iparam][0]]
+            w2_val[pL[iparam][0] : w2_val.shape[0]] = 0  
             
-        if(len(dims) == 2):
-        
-            w2_val = w2_vals[iparams + 1]
-            w1_val = wL1[iparams + 1]#K.batch_get_value([w1])[0]  
+            to_update.append((wL2[iparam ], w2_val))   
             
-            w2_val[0:dims[0], 0:dims[1]] = w1_val[0:dims[0], 0:dims[1]]
-            w2_val[dims[0]:w2_val.shape[0], 0:w2_val.shape[1]] = 0
-            w2_val[0:dims[0], dims[1]:w2_val.shape[1]] = 0      
+        if(len(pL[iparam]) == 2):
             
-            to_update.apppend((wL2[iparams + 1], w2_val])
+            w2_val = w2_vals[iparam ]
+            w1_val = wL1[iparam ]#K.batch_get_value([w1])[0]  
+            
+            w2_val[0:pL[iparam][0], 0:pL[iparam][1]] = w1_val[0:pL[iparam][0], 0:pL[iparam][1]]
+            w2_val[pL[iparam][0]:w2_val.shape[0], 0:w2_val.shape[1]] = 0
+            w2_val[0:pL[iparam][0], pL[iparam][1]:w2_val.shape[1]] = 0      
+            
+            to_update.append((wL2[iparam], w2_val))
     
     K.batch_set_value(to_update)
 
         
 def subcopy2(w1, w2, dims):
 
-    if(len(dims) == 1):
-        w2[0:dims[0]] = w1[0:dims[0]]
-        w2[dims[0]:w2.shape[0]] = 0
-    if(len(dims) == 2):
-        w2[0:dims[0], 0:dims[1]] = w1[0:dims[0], 0:dims[1]]
-        w2[dims[0]:w2.shape[0], 0 : w2.shape[1]] = 0
-        w2[0:dims[0], dims[1]:w2.shape[1]] = 0
-        
-    return w2   
- 
+    
+    try:
+        if(len(dims) == 1):
+            w2[0:dims[0]] = w1[0:dims[0]]
+            w2[dims[0]:w2.shape[0]] = 0
+        if(len(dims) == 2):
+            w2[0:dims[0], 0:dims[1]] = w1[0:dims[0], 0:dims[1]]
+            w2[dims[0]:w2.shape[0], 0 : w2.shape[1]] = 0
+            w2[0:dims[0], dims[1]:w2.shape[1]] = 0
+        return w2 
+    except Exception as e:
+        print('w1', w1.shape)
+        print('w2', w2.shape)
+        print('dims', dims)
+        raise e
+
 def ComputeparamInsertDebut2(param_list, ResnetRank):
 
     ll = len(param_list[0:ResnetRank])
     
     def compute(j):
         if   (param_list[j][0] == 0):
-            return 1
+            return 2
         elif (param_list[j][0] == 1):
             return 3
         elif (param_list[j][0] == 2):
@@ -448,31 +539,74 @@ def ComputeparamInsertDebut2(param_list, ResnetRank):
             
     return sum([compute(i) for i in range(ll)])
  
-def setModelOptimizerInsertion(model, optimstate, modelspecList, ResnetRank):
+def setModelOptimizerInsertion(model, optimstate, modelspecList, ResnetRank, ResnetType):
 
     weights1 = model.get_weights()
     param_list1 = list(map(lambda k: k.shape, weights1))
-    paramInsertDebut = ComputeparamInsertDebut2(modelspecList, ResnetRank) + 1
+    paramInsertDebut = ComputeparamInsertDebut2(modelspecList, ResnetRank)
     gapRank = ResnetWidth2(ResnetType)
     
     model.compile(loss = 'mse', optimizer = params.OPTIMIZER_GENETIC.create_instance())
-
+    model._make_train_function()
     to_update = []
-    for i in range(paramInsertDebut):
-    
-        to_update.append((model.optimizer.weights[i + 1], optimstate[i + 1]))  
+    #for i in range(1, paramInsertDebut):
+    len_opt = (len(optimstate) - 1) // 3
+    try:
+        shift_prev = 1
+        shift_next = 1
+        subcopy3(optimstate[ shift_prev : shift_prev + paramInsertDebut],\
+                 model.optimizer.weights[shift_next : shift_next + paramInsertDebut])
         
-    keras.backend.batch_set_value(to_update)
-    
-    to_update = []
-    for i in range(paramInsertDebut + gapRank + 1, len(model.optimizer.weights)):
-    
-        to_update.append((model.optimizer.weights[i], optimstate[i - gapRank]))
+        subcopy3(optimstate[ shift_prev + paramInsertDebut : shift_prev + len_opt],\
+                 model.optimizer.weights[shift_next + paramInsertDebut + gapRank : shift_next + len(param_list1)])
         
-    keras.backend.batch_set_value(to_update)
+        shift_prev = 1 + len_opt
+        shift_next = 1 + len(param_list1)
+        subcopy3(optimstate[ shift_prev : shift_prev + paramInsertDebut],\
+                 model.optimizer.weights[shift_next : shift_next + paramInsertDebut])
+        
+        subcopy3(optimstate[ shift_prev + paramInsertDebut : shift_prev + len_opt],\
+                 model.optimizer.weights[shift_next + paramInsertDebut + gapRank : shift_next + len(param_list1)])
+        
+        shift_prev = 1 + 2 * len_opt
+        shift_next = 1 + 2 * len(param_list1)
+        subcopy3(optimstate[ shift_prev : shift_prev + paramInsertDebut],\
+                 model.optimizer.weights[shift_next : shift_next + paramInsertDebut])
+        
+        subcopy3(optimstate[ shift_prev + paramInsertDebut : shift_prev + len_opt],\
+                 model.optimizer.weights[shift_next + paramInsertDebut + gapRank : shift_next + len(param_list1)])
+        #to_update.append((model.optimizer.weights[i], )  
+    
+        #keras.backend.batch_set_value(to_update)
+    except Exception as e:
+        print('gap', gapRank)
+        print('speclist', modelspecList)
+        print('rank', ResnetRank)
+        print('paramInsertDebut', paramInsertDebut)
+        #print('params_l1', param_list1)
+        #print('params_l2', param_list2)
+        print('first', [[int(x) for x in y.shape] for y in model.optimizer.weights])
+        print('second', [[int(x) for x in y.shape] for y in optimstate])
+        raise e
+    
+    #to_update = []
+    #for i in range(paramInsertDebut + gapRank, len(model.optimizer.weights)):
+    #subcopy3(optimstate[paramInsertDebut + gapRank:len(model.optimizer.weights)],\
+    #        model.optimizer.weights[paramInsertDebut + gapRank:len(model.optimizer.weights)])
+    #    to_update.append((model.optimizer.weights[i], optimstate[i - gapRank]))
+        
+    #keras.backend.batch_set_value(to_update)
     
     return model 
- 
+
+def ResnetWidth2(ResnetType):
+    if   (ResnetType == 0):
+            return 1
+    elif (ResnetType == 1):
+            return 3
+    elif (ResnetType == 2):
+            return 5
+        
 def injectionModelWithInsertion2(model, modelspecList, ResnetRank, ResnetWeight0, ResnetType, optimstate) : 
     
     weights1 = model.get_weights()
@@ -485,49 +619,60 @@ def injectionModelWithInsertion2(model, modelspecList, ResnetRank, ResnetWeight0
     modelspeclist2.insert(ResnetRank, [ResnetType, ResnetWeight])
 
 
-    model2 = buidModel2(modelspeclist2, params) 
+    model2 = buildModel(modelspeclist2) 
 
     model2.compile(loss = 'mse', optimizer = params.OPTIMIZER_GENETIC.create_instance())       
-    
+    model2._make_train_function()
     weights2 = model2.get_weights()
     param_list2 = list(map(lambda k: k.shape, weights2))
 
-    paramInsertDebut = ComputeparamInsertDebut2(modelspecList, ResnetRank) + 1 
+    paramInsertDebut = ComputeparamInsertDebut2(modelspecList, ResnetRank) 
     gapRank = ResnetWidth2(ResnetType)
     paramInsertFin = paramInsertDebut + gapRank
 
     firstset = [param_list1[i] for i in range(paramInsertDebut)]
     lastset = [param_list1[i] for i in range(paramInsertDebut, len(param_list1))]
 
+    #print('gap', gapRank)
+    #print('speclist', modelspecList)
+    #print('rank', ResnetRank)
+    #print('paramInsertDebut', paramInsertDebut)
+    #print('params_l1', param_list1)
+    #print('params_l2', param_list2)
+    
     for iparam in range(paramInsertDebut):    
         w = subcopy2(weights1[iparam], weights2[iparam], param_list1[iparam])
         weights2[iparam] = w
         
-    for j in range(gapRank)  :      
+    for j in range(gapRank):      
     
         if (len(param_list2[paramInsertDebut + j]) == 2):
             weights2[paramInsertDebut + j][0:param_list2[paramInsertDebut + j][0], 0:param_list2[paramInsertDebut + j][1]] = 0
         else :
             weights2[paramInsertDebut + j][0:param_list2[paramInsertDebut + j][0]] = 0
             
+    #print('weights1', [x.shape for x in weights1[iparam]])
+    #print('weights2', [x.shape for x in weights2[iparam]])
+
     for iparam in range(paramInsertDebut, len(param_list1)):
-    
+        
         w = subcopy2(weights1[iparam], weights2[iparam + gapRank], param_list1[iparam])
         weights2[iparam + gapRank] = w
         
-    model2 = setModelOptimizerInsertion(model2, optimstate, modelspecList, ResnetRank)
+    model2 = setModelOptimizerInsertion(model2, optimstate, modelspecList, ResnetRank, ResnetType)
     model2.set_weights(weights2) 
     
     return model2, modelspeclist2
 
-def setModelOptimizerDimIncrease(model2, model, param_list, param_list2, optimstate):#  
+def setModelOptimizerDimIncrease(model2, model, optimstate):#  
       
     model2.compile(loss='mse', optimizer = params.OPTIMIZER_GENETIC.create_instance())
     
     #for iparam in range(len(param_list2)):
-    subcopy3(optimstate, model2.optimizer.weights, param_list) 
+    model2._make_train_function()
+    subcopy3(optimstate, model2.optimizer.weights) 
   
-    return model2
+    #return model2
 
 '''
 def setModelOptimizerMinimal(model):      
@@ -547,11 +692,16 @@ def injectionModel(model, modelspecList, deltaspecList, optimstate) :
     weights2 = model2.get_weights()
     param_list2 = list(map(lambda k: k.shape, weights2))
     
+    #print('param_list2 ',param_list2 )
+    
     for iparam in range(len(param_list2)):
+
         w = subcopy2(weights1[iparam], weights2[iparam], param_list[iparam])
+        #print('****w ***', w.shape, '****weights2 ***' ,weights2[iparam].shape,\
+        #      '**** param_list ***', param_list2[iparam])
         weights2[iparam] = w
-        
-    model2 = setModelOptimizerDimIncrease(model2, model, param_list, param_list2, optimstate)
+    
+    setModelOptimizerDimIncrease(model2, model, optimstate)
     model2.set_weights(weights2)  
     
     return model2, modelspeclist2
@@ -601,62 +751,6 @@ import pickle
 import numpy as np
 import gc
 
-class Optimizer:
-    
-    def __init__(self, opt_type, params):
-        
-        assert type(params) is dict, "params must be a dict" 
-        assert opt_type in {'SGD', 'Adam'}, "this type of optimizer is not supported" 
-        
-        self.type = opt_type
-        
-        if self.type == 'SGD':
-            for param in params:
-                assert param in {'lr', 'momentum', 'decay', 'nesterov'}, 'Illegal name of parameter'
-        elif self.type == 'Adam':
-            for param in params:
-                assert param in {'lr', 'beta_1', 'beta_2', 'epsilon', 'decay', 'amsgrad'}, 'Illegal name of parameter' 
-        
-        self.params = params
-    
-    @classmethod   
-    def from_file(self, address):
-        
-        load = joblib.load(address)
-        
-        return load
-
-    def create_instance(self):
-        
-        if self.type == 'SGD':
-            return SGD(**self.params)
-        elif self.type == 'Adam':
-            return Adam(**self.params)
-        
-    def save_to_individu(self, address):
-        
-        try:
-            joblib.dump(self, address)
-        except Exception as e:
-            print(e)
-            
-    def introduce_mutation(self):
-        
-        if self.type == 'SGD':
-            pass
-        elif self.type == 'Adam':
-            pass
-        
-        r = np.random.rand()
-        
-        if r < 0.15:
-            self.params['lr'] *= 2.0
-        elif r < 0.55:
-            self.params['lr'] *= 1.0
-        else:
-            self.params['lr'] *= 0.5
-            
-            
 class Task:
     def __init__(self, ModelPath, individuPath, cnfigName):
         
@@ -679,6 +773,7 @@ class Best_Model:
         self.parent_model = model
         self.parent_speclist = specList
         self.parent_weights = model.get_weights()
+        self.parent_opt_weights = opt_weights
         
         self.model = model2
         self.speclist = specList2
@@ -722,6 +817,10 @@ class CheckScoreSubmodels(tf.keras.callbacks.Callback):
         assert(np.allclose(scores[0], np.sum(scores[1:]), atol = 0.01))
         
         
+        lgths_optimizer_pars = [bm.optim_lengths for bm in self.best_weights]
+        extracted_optimizers_states = extract_optimizer_state(lgths_optimizer_pars, self.model)
+        
+        
         for i in range(len(self.best_weights)):
             
             if self.best_weights[i].best_score > scores[i]:
@@ -730,6 +829,7 @@ class CheckScoreSubmodels(tf.keras.callbacks.Callback):
                 self.best_weights[i].best_optimizer =  self.optimizer
                 self.best_weights[i].epoch = epoch
                 self.best_weights[i].best_score = scores[i]
+                self.best_weights[i].best_opt_weights = extracted_optimizers_states[i]
     
 ###############################################################################
 ###############################################################################
@@ -848,7 +948,7 @@ def extract_optimizer_state(lengths, metamodel):
 
         
         for i in range(len(lengths)):
-            MODELS_PARAMS.append([0] + models_opt_means[i] + models_opt_vars[i] + models_opt_caps[i])
+            MODELS_PARAMS.append([np.array(0)] + models_opt_means[i] + models_opt_vars[i] + models_opt_caps[i])
         
     elif isinstance(metamodel.optimizer, keras.optimizers.SGD):
         pass
@@ -900,7 +1000,7 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
             train_generator = DataGenerator_N(n_dims = len(list_models), mode = 'train')
             val_generator = DataGenerator_N(n_dims = len(list_models), mode = 'val')
             
-            fit_params_gen = {'verbose':0, 'epochs':1, 'shuffle':False, 'use_multiprocessing':True, 'workers':16}
+            fit_params_gen = {'verbose':1, 'epochs':200, 'shuffle':False, 'use_multiprocessing':True, 'workers':16}
             
             #fit_params = {'verbose':1, 'epochs':1, 'shuffle': True}
             
@@ -925,15 +1025,14 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
         
         print('Extracting optimizers states...')
         
-        lgths_optimizer_pars = [bm.optim_lengths for bm in best_models]
-        extracted_optimizers_states = extract_optimizer_state(lgths_optimizer_pars, metamodel)
+        
         
         print('Saving all to the disk...')
         for idxx, bm in enumerate(best_models):
             
             if not bm.best_optimizer:
             
-                bm.model.optimizer.set_weights(extracted_optimizers_states[idxx])
+                #bm.model.optimizer.set_weights(extracted_optimizers_states[idxx])
                 bm.parent_model.set_weights(bm.parent_weights)
                 
                 with open(bm.task.IndividuPath + '/Report.txt', 'w+') as fp:
@@ -942,6 +1041,7 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
                 with open(bm.task.IndividuPath + '/Best_score.txt', 'w+') as fp:
                     fp.write(str(bm.parent_score))
                     
+                bm.parent_model.optimizer.set_weights(bm.parent_opt_weights)    
                 saveIndividualModel(bm.parent_model, bm.parent_speclist, bm.task.IndividuPath, bm.task.cnfigName)
                 
                 TOTAL_BEST[bm.task.IndividuPath] = bm.best_score
@@ -962,7 +1062,14 @@ def metamodels_create_and_train(tasks, list_optimizers, limit_tasks_by_model = 1
                     fp.write(str(bm.best_score))
                     
                 bm.model.set_weights(bm.best_weights)
-                bm.model.optimizer.set_weights(extracted_optimizers_states[idxx])
+                
+                #print(extracted_optimizers_states[idxx])
+                #print('first element opt ', type(bm.model.optimizer.get_weights()[0])
+                #print('first element extract ', extracted_optimizers_states[idxx][0])
+                #print('extract', [[int(y) for y in x.shape ] for x in extracted_optimizers_states[idxx][1:]])
+                #print('optimizer ', [[int(y) for y in x.shape ] for x in bm.model.optimizer.get_weights()[1:]])
+                
+                bm.model.optimizer.set_weights(bm.best_opt_weights)
                 saveIndividualModel(bm.model, bm.speclist, bm.task.IndividuPath, bm.task.cnfigName)
                 
                 TOTAL_BEST[bm.task.IndividuPath] = bm.best_score
@@ -994,9 +1101,10 @@ def create_metamodel(list_models, optimizer):
     #G = 8
     #metaModel = keras.utils.multi_gpu_model(metaModel, gpus = G)
     metaModel.compile(loss = 'mse', optimizer = optimizer)
+    metaModel._make_train_function()
     #print(metaModel.summary())
     evaluate_model.compile(loss = {namespace[i] : 'mse' for i in range(len(list_models))}, optimizer = optimizer)
-    
+    evaluate_model._make_train_function()
     return metaModel, evaluate_model
 
 ###############################################################################
@@ -1093,7 +1201,7 @@ def ReinforceOptimalityWithGenetic(list_optimizers, pkgNameOriginal, pkgNameBut,
         LIST_OF_TASKS = [LIST_OF_TASKS[i] for i in range(len(LIST_OF_TASKS)) if i % params.size == params.rank]
         
         NOTES_INDIVIDUS = metamodels_create_and_train(LIST_OF_TASKS, list_optimizers,\
-                                limit_tasks_by_model = 4)
+                                limit_tasks_by_model = 16)
         
         params.comm.Barrier()
         K.clear_session()
@@ -1145,7 +1253,7 @@ def ReinforceOptimalityWithGenetic(list_optimizers, pkgNameOriginal, pkgNameBut,
 
 try:
     
-    path_to = '/mnt/natixis_1/1/'#'/workspace/FirstAttempt/Data/Sergey/'#
+    path_to = '/mnt/natixis_1/2/'#'/workspace/FirstAttempt/Data/Sergey/'#
     params.list_gen = [path_to + x for x in os.listdir(path_to)]
 
     # params.calib_files = [params.list_gen[0]]
@@ -1154,7 +1262,7 @@ try:
     # params.test_files = [params.list_gen[4]]
 
     params.calib_files = [params.list_gen[0]]
-    params.train_files = params.list_gen[1:3]
+    params.train_files = params.list_gen[1:31]
     params.val_files = params.list_gen[31:33]
     params.test_files = [params.list_gen[33]]
 
@@ -1170,8 +1278,6 @@ try:
     print('READ DATA')
     ####################################################################################
     ####################################################################################
-    print('INIT HOROVOD')
-    
     hvd.init()
 
     params.comm = MPI.COMM_WORLD
@@ -1182,22 +1288,32 @@ try:
     assert(params.size == hvd.size())
     assert(params.rank == hvd.rank())
 
-
+    ##################################################################################
     # Horovod: pin GPU to be used to process local rank (one GPU per process)
     config = tf.compat.v1.ConfigProto()
     config.gpu_options.allow_growth = True
     config.gpu_options.visible_device_list = str(hvd.local_rank())
     K.set_session(tf.compat.v1.Session(config = config))
 
-    nbloop = 5
+    
+    #print('EVALUATING LOADED PRETRAINED MODEL...')
+    #loaded_model, sl, ow = loadIndividualModel(params.LEARNINGBASE_ORIGIN , 'Vol')
+    #loaded_model = load_model(params.PATH + "/" + params.LEARNINGBASE_ORIGIN +  '/Vol.hdf5')
+    #loss = loaded_model.evaluate(params.X_val_scaled, params.Y_val_scaled)
+    #print('loss =', loss)
+    
+    print('INIT HOROVOD')
+    
+    #############################################################################
+    nbloop = 25
 
     nbChildAllowed = 4
     pkgNameOriginal = params.LEARNINGBASE_ORIGIN
     pkgNameBut = params.LEARNINGBASE_BUT
-    InitialNbIndividual = 32
+    InitialNbIndividual = 16
 
     print('INIT_OPTIMIZERS...')
-    list_opt = [('Adam', {'lr':1e-7})]#, ('SGD', {'lr':1e-7})
+    list_opt = [('Adam', {'lr':1e-5})]#, ('SGD', {'lr':1e-7})
     list_optimizers = [Optimizer(lopt[0], lopt[1]) for lopt in list_opt]
 
     a = ReinforceOptimalityWithGenetic(list_optimizers, pkgNameOriginal, pkgNameBut,\
